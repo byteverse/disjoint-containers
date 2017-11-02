@@ -1,11 +1,16 @@
 {-# LANGUAGE BangPatterns #-}
 
+{-# OPTIONS_GHC -Wall #-}
+
 module Data.DisjointSet
   ( DisjointSet
   , empty
   , singleton
+  , singletons
+  , insert
   , union
-  , lookup
+  , representative
+  , representative'
   , toLists
   ) where
 
@@ -17,17 +22,27 @@ import Control.Monad
 
 import Data.Map (Map)
 import Data.Set (Set)
+import Data.Semigroup (Semigroup)
+import qualified Data.Semigroup
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 data DisjointSet a = DisjointSet
-  { parents :: !(Map a a)
-  , ranks :: !(Map a Int)
-  }
+  !(Map a a) -- parents
+  !(Map a Int) -- ranks
 
 instance Ord a => Monoid (DisjointSet a) where
   mappend = append
   mempty = empty
+
+instance Ord a => Semigroup (DisjointSet a) where
+  (<>) = append
+
+instance Ord a => Eq (DisjointSet a) where
+  a == b = S.fromList (toSets a) == S.fromList (toSets b)
+
+instance Ord a => Ord (DisjointSet a) where
+  compare a b = compare (S.fromList (toSets a)) (S.fromList (toSets b))
 
 instance (Show a, Ord a) => Show (DisjointSet a) where
   show = showDisjointSet
@@ -50,8 +65,11 @@ flatten ds@(DisjointSet p _) = S.foldl'
     Just b -> M.insertWith S.union b (S.singleton a) m
   ) M.empty (M.keysSet p)
 
-data Pair a b = Pair !a !b
-
+{-|
+Create an equivalence relation between x and y. If either x or y
+are not already is the disjoint set, they are first created
+as singletons.
+-}
 union :: Ord a => a -> a -> DisjointSet a -> DisjointSet a
 union !x !y set = flip execState set $ runMaybeT $ do
   repx <- lift $ state $ lookupCompressAdd x
@@ -71,8 +89,11 @@ union !x !y set = flip execState set $ runMaybeT $ do
               r' = M.delete repx $! M.insert repy (ranky + 1) r
           in  DisjointSet p' r'
 
-lookup :: Ord a => a -> DisjointSet a -> Maybe a
-lookup = find
+{-|
+Find the set representative for this input.
+-}
+representative :: Ord a => a -> DisjointSet a -> Maybe a
+representative = find
 
 {-| Insert x into the disjoint set.  If it is already a member,
     then do nothing, otherwise x has no equivalence relations.
@@ -113,11 +134,15 @@ singletons s = case S.lookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
-        r = M.fromSet (\y -> if x == y then 1 else 0) s
+        r = M.singleton x 1
     in DisjointSet p r
 
-lookupCompress :: Ord a => a -> DisjointSet a -> (Maybe a, DisjointSet a)
-lookupCompress !x set =
+{-|
+Find the set representative for this input. Returns a new disjoint
+set in which the path has been compressed.
+-}
+representative' :: Ord a => a -> DisjointSet a -> (Maybe a, DisjointSet a)
+representative' !x set =
   case find x set of
     Nothing  -> (Nothing, set)
     Just rep -> let set' = compress rep x set
