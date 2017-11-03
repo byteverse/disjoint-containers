@@ -5,6 +5,24 @@
 
 {-# OPTIONS_GHC -Wall #-}
 
+{-|
+Maps with disjoint sets as the key. The type in this module can be
+understood as:
+
+> DisjointMap k v ≡ Map (DisjointSet k) v
+
+However, actually using a 'Map' with @DisjointSet@ as the key
+would offer terrible performance. This is because the 'Ord'
+instance for @DisjointSet@ cannot be made to perform well.
+Internally, @DisjointMap@ is implemented like a disjoint set
+but the data structure that maps representatives to their rank also holds the value
+associated with that representative element. Additionally, it holds the set
+of all keys that in the same equivalence class as the representative.
+This makes it possible to implementat functions like @foldlWithKeys\'@
+efficiently.
+
+-}
+
 module Data.DisjointMap
   ( DisjointMap
     -- * Construction
@@ -15,10 +33,16 @@ module Data.DisjointMap
   , union
     -- * Query
   , lookup
+  , lookup'
   , representative
   , representative'
     -- * Conversion
   , toLists
+  , pretty
+  , prettyList
+  , foldlWithKeys'
+    -- * Tutorial
+    -- $tutorial
   ) where
 
 import Prelude hiding (lookup)
@@ -31,18 +55,21 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Bifunctor (first)
 import Data.Foldable (Foldable)
+import Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
-import qualified Data.Map.Merge.Strict as MM
 import qualified Data.Set as S
+import qualified GHC.OldList as L
 
 -- | A map having disjoints sets of @k@ as keys and
 --   @v@ as values.
 data DisjointMap k v = DisjointMap
   !(Map k k) -- parents and values
-  !(Map k (Ranked v)) -- ranks
+  !(Map k (Ranked k v)) -- ranks
   deriving (Functor,Foldable,Traversable)
 
-data Ranked b = Ranked {-# UNPACK #-} !Int !b
+-- the name ranked is no longer totally appropriate since
+-- a set of keys has been added in here as well.
+data Ranked k v = Ranked {-# UNPACK #-} !Int !(Set k) !v
   deriving (Functor,Foldable,Traversable)
 
 instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
@@ -63,20 +90,25 @@ instance (Show k, Ord k, Show v) => Show (DisjointMap k v) where
 showDisjointSet :: (Show k, Ord k, Show v) => DisjointMap k v -> String
 showDisjointSet = show . toLists
 
-toLists :: Ord k => DisjointMap k v -> [([k],v)]
+toLists :: DisjointMap k v -> [([k],v)]
 toLists = (fmap.first) S.toList . toSets
 
-toSets :: Ord k => DisjointMap k v -> [(Set k,v)]
-toSets dm@(DisjointMap _ r) = M.elems $ MM.merge MM.dropMissing MM.dropMissing (MM.zipWithMatched $ \_ ks (Ranked _ v) -> (ks,v)) (flatten dm) r
+toSets :: DisjointMap k v -> [(Set k,v)]
+toSets (DisjointMap _ r) = M.foldr
+  (\(Ranked _ s v) xs -> (s,v) : xs) [] r
 
--- in the result of this, the key in the
--- map keeps everything separate.
-flatten :: Ord k => DisjointMap k v -> Map k (Set k)
-flatten ds@(DisjointMap p _) = S.foldl'
-  ( \m a -> case find a ds of
-    Nothing -> error "DisjointMap flatten: invariant violated. missing key."
-    Just b -> M.insertWith S.union b (S.singleton a) m
-  ) M.empty (M.keysSet p)
+pretty :: (Show k, Show v) => DisjointMap k v -> String
+pretty dm = "{" ++ L.intercalate ", " (prettyList dm) ++ "}"
+
+prettyList :: (Show k, Show v) => DisjointMap k v -> [String]
+prettyList dm = L.map (\(ks,v) -> "{" ++ commafied ks ++ "} -> " ++ show v) (toSets dm)
+
+commafied :: Show k => Set k -> String
+commafied = join . L.intersperse "," . map show . S.toList
+
+foldlWithKeys' :: (a -> Set k -> v -> a) -> a -> DisjointMap k v -> a
+foldlWithKeys' f a0 (DisjointMap _ r) =
+  M.foldl' (\a (Ranked _ ks v) -> f a ks v) a0 r
 
 {-|
 Create an equivalence relation between x and y. If either x or y
@@ -89,18 +121,19 @@ union !x !y set = flip execState set $ runMaybeT $ do
   repy <- lift $ state $ lookupCompressAdd y
   guard $ repx /= repy
   DisjointMap p r <- lift get
-  let Ranked rankx valx = r M.! repx
-  let Ranked ranky valy = r M.! repy
+  let Ranked rankx keysx valx = r M.! repx
+  let Ranked ranky keysy valy = r M.! repy
   let val = mappend valx valy
+      keys = mappend keysx keysy
   lift $ put $! case compare rankx ranky of
     LT -> let p' = M.insert repx repy p
-              r' = M.delete repx $! M.insert repy (Ranked ranky val) r
+              r' = M.delete repx $! M.insert repy (Ranked ranky keys val) r
           in  DisjointMap p' r'
     GT -> let p' = M.insert repy repx p
-              r' = M.delete repy $! M.insert repx (Ranked rankx val) r
+              r' = M.delete repy $! M.insert repx (Ranked rankx keys val) r
           in  DisjointMap p' r'
     EQ -> let p' = M.insert repx repy p
-              r' = M.delete repx $! M.insert repy (Ranked (ranky + 1) val) r
+              r' = M.delete repx $! M.insert repy (Ranked (ranky + 1) keys val) r
           in  DisjointMap p' r'
 
 {-|
@@ -117,23 +150,27 @@ representative = find
     associates it with the value.
 -}
 insert :: (Ord k, Monoid v) => k -> v -> DisjointMap k v -> DisjointMap k v
-insert !x !v set@(DisjointMap p r) =
+insert !x = insertInternal x (S.singleton x)
+
+insertInternal :: (Ord k, Monoid v) => k -> Set k -> v -> DisjointMap k v -> DisjointMap k v
+insertInternal !x !ks !v set@(DisjointMap p r) =
   let (l, p') = M.insertLookupWithKey (\_ _ old -> old) x x p
    in case l of
         Just _ ->
           let (m,DisjointMap p2 r') = representative' x set
            in case m of
                 Nothing -> error "DisjointMap insert: invariant violated"
-                Just root -> DisjointMap p2 (M.adjust (\(Ranked rank vOld) -> Ranked rank (mappend v vOld)) root r')
+                Just root -> DisjointMap p2 (M.adjust (\(Ranked rank oldKs vOld) -> Ranked rank (mappend oldKs ks) (mappend v vOld)) root r')
         Nothing ->
-          let r' = M.insert x (Ranked 0 v) r
+          let r' = M.insert x (Ranked 0 ks v) r
           in  DisjointMap p' r'
+
 
 {-| Create a disjoint map with one key: a singleton set. O(1). -}
 singleton :: k -> v -> DisjointMap k v
 singleton !x !v =
   let p = M.singleton x x
-      r = M.singleton x (Ranked 0 v)
+      r = M.singleton x (Ranked 0 (S.singleton x) v)
    in DisjointMap p r
 
 {-| The empty map -}
@@ -145,11 +182,11 @@ append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) = if M.size m1 > M.size m2
   then appendParents r2 s1 m2
   else appendParents r1 s2 m1
 
-appendParents :: (Ord k, Monoid v) => Map k (Ranked v) -> DisjointMap k v -> Map k k -> DisjointMap k v
+appendParents :: (Ord k, Monoid v) => Map k (Ranked k v) -> DisjointMap k v -> Map k k -> DisjointMap k v
 appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y
   then case M.lookup x ranks of
     Nothing -> error "DisjointMap appendParents: invariant violated"
-    Just (Ranked _ v) -> insert x v ds
+    Just (Ranked _ ks v) -> insertInternal x ks v ds
   else union x y ds
 
 {-| Create a disjoint map with one key. Everything in the
@@ -161,7 +198,7 @@ singletons s v = case S.lookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
-        r = M.singleton x (Ranked 1 v)
+        r = M.singleton x (Ranked 1 s v)
     in DisjointMap p r
 
 {-|
@@ -190,21 +227,27 @@ find !x (DisjointMap p _) =
                   in  if y == y' then y' else find' y'
 
 {-| Find the value associated with the set containing
+    the provided key. If the key is not found, use 'mempty'.
+-}
+lookup :: (Ord k, Monoid v) => k -> DisjointMap k v -> v
+lookup k = fromMaybe mempty . lookup' k
+
+{-| Find the value associated with the set containing
     the provided key.
 -}
-lookup :: Ord k => k -> DisjointMap k v -> Maybe v
-lookup !x (DisjointMap p r) =
+lookup' :: Ord k => k -> DisjointMap k v -> Maybe v
+lookup' !x (DisjointMap p r) =
   do x' <- M.lookup x p
      if x == x'
        then case M.lookup x r of
          Nothing -> Nothing
-         Just (Ranked _ v) -> Just v
+         Just (Ranked _ _ v) -> Just v
        else find' x'
   where find' y = let y' = p M.! y
                    in if y == y'
                         then case M.lookup y r of
                           Nothing -> Nothing
-                          Just (Ranked _ v) -> Just v
+                          Just (Ranked _ _ v) -> Just v
                         else find' y'
 
 -- TODO: make this smarter about recreating the parents Map.
@@ -219,4 +262,54 @@ compress !rep = helper
           set'  = let p' = M.insert x rep p
                   in  p' `seq` DisjointMap p' r
 
+{- $tutorial
+
+The disjoint map data structure can be used to model scenarios where
+the key of a map is a disjoint set. Let us consider trying to find
+the lowest rating of our by town. Due to differing subcultures,
+inhabitants do not necessarily agree on a canonical name for each town.
+Consequently, the survey allows participants to write in their town
+name as they would call it. We begin with a rating data type:
+
+>>> import Data.Function ((&))
+>>> data Rating = Lowest | Low | Medium | High | Highest deriving (Eq,Ord,Show)
+>>> instance Monoid Rating where mempty = Highest; mappend = min
+
+Notice that the 'Monoid' instance combines ratings by choosing
+the lower one. Now, we consider the data from the survey:
+
+>>> let resA = [("Big Lake",High),("Newport Lake",Medium),("Dustboro",Low)]
+>>> let resB = [("Sand Town",Medium),("Sand Town",High),("Mount Lucy",High)]
+>>> let resC = [("Lucy Hill",Highest),("Dustboro",High),("Dustville",High)]
+>>> let m1 = foldMap (uncurry singleton) (resA ++ resB ++ resC)
+>>> :t m1
+m1 :: DisjointMap [Char] Rating
+>>> mapM_ putStrLn (prettyList m1)
+{"Big Lake"} -> High
+{"Dustboro"} -> Low
+{"Dustville"} -> High
+{"Lucy Hill"} -> Highest
+{"Mount Lucy"} -> High
+{"Newport Lake"} -> Medium
+{"Sand Town"} -> Medium
+
+Since we haven't defined any equivalence classes for the town names yet,
+what we have so far is no different from an ordinary 'Map'. Now we
+will introduce some equivalences:
+
+>>> let m2 = m1 & union "Big Lake" "Newport Lake" & union "Sand Town" "Dustboro"
+>>> let m3 = m2 & union "Dustboro" "Dustville" & union "Lucy Hill" "Mount Lucy"
+>>> mapM_ putStrLn (prettyList m3)
+{"Dustboro","Dustville","Sand Town"} -> Low
+{"Lucy Hill","Mount Lucy"} -> High
+{"Big Lake","Newport Lake"} -> Medium
+
+We can now query the map to find the lowest rating in a given town:
+
+>>> lookup "Dustville" m3
+Low
+>>> lookup "Lucy Hill" m3
+High
+
+-}
 
