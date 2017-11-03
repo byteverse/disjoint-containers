@@ -1,17 +1,23 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
 module Data.DisjointMap
   ( DisjointMap
+    -- * Construction
   , empty
   , singleton
   , singletons
   , insert
   , union
+    -- * Query
   , lookup
   , representative
   , representative'
+    -- * Conversion
   , toLists
   ) where
 
@@ -24,15 +30,20 @@ import Control.Monad
 import Data.Map (Map)
 import Data.Set (Set)
 import Data.Bifunctor (first)
+import Data.Foldable (Foldable)
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as MM
 import qualified Data.Set as S
 
+-- | A map having disjoints sets of @k@ as keys and
+--   @v@ as values.
 data DisjointMap k v = DisjointMap
   !(Map k k) -- parents and values
   !(Map k (Ranked v)) -- ranks
+  deriving (Functor,Foldable,Traversable)
 
 data Ranked b = Ranked {-# UNPACK #-} !Int !b
+  deriving (Functor,Foldable,Traversable)
 
 instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
   mappend = append
@@ -70,7 +81,7 @@ flatten ds@(DisjointMap p _) = S.foldl'
 {-|
 Create an equivalence relation between x and y. If either x or y
 are not already is the disjoint set, they are first created
-as singletons.
+as singletons with a value that is 'mempty'.
 -}
 union :: (Ord k, Monoid v) => k -> k -> DisjointMap k v -> DisjointMap k v
 union !x !y set = flip execState set $ runMaybeT $ do
@@ -93,35 +104,39 @@ union !x !y set = flip execState set $ runMaybeT $ do
           in  DisjointMap p' r'
 
 {-|
-Find the set representative for this input.
+Find the set representative for this input. This function
+ignores the values in the map.
 -}
 representative :: Ord k => k -> DisjointMap k v -> Maybe k
 representative = find
 
-{-| Insert x into the disjoint set.  If it is already a member,
-    then do nothing, otherwise x has no equivalence relations.
-    O(logn).
+{-| Insert a key-value pair into the disjoint map. If the key
+    is is already present in another set, combine the value
+    monoidally with the value belonging to it.
+    Otherwise, this creates a singleton set as a new key and
+    associates it with the value.
 -}
 insert :: (Ord k, Monoid v) => k -> v -> DisjointMap k v -> DisjointMap k v
 insert !x !v set@(DisjointMap p r) =
   let (l, p') = M.insertLookupWithKey (\_ _ old -> old) x x p
    in case l of
         Just _ ->
-          let (m,DisjointMap p' r') = representative' x set
+          let (m,DisjointMap p2 r') = representative' x set
            in case m of
                 Nothing -> error "DisjointMap insert: invariant violated"
-                Just root -> DisjointMap p' (M.adjust (\(Ranked rank vOld) -> Ranked rank (mappend v vOld)) root r')
+                Just root -> DisjointMap p2 (M.adjust (\(Ranked rank vOld) -> Ranked rank (mappend v vOld)) root r')
         Nothing ->
           let r' = M.insert x (Ranked 0 v) r
           in  DisjointMap p' r'
 
-{-| Create a disjoint set with one member. O(1). -}
+{-| Create a disjoint map with one key: a singleton set. O(1). -}
 singleton :: k -> v -> DisjointMap k v
 singleton !x !v =
   let p = M.singleton x x
       r = M.singleton x (Ranked 0 v)
    in DisjointMap p r
 
+{-| The empty map -}
 empty :: DisjointMap k v
 empty = DisjointMap M.empty M.empty
 
@@ -137,7 +152,10 @@ appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y
     Just (Ranked _ v) -> insert x v ds
   else union x y ds
 
-{-| Create a disjoint set where all members are equal. -}
+{-| Create a disjoint map with one key. Everything in the
+    'Set' argument is consider part of the same equivalence
+    class.
+-}
 singletons :: Eq k => Set k -> v -> DisjointMap k v
 singletons s v = case S.lookupMin s of
   Nothing -> empty
@@ -171,6 +189,9 @@ find !x (DisjointMap p _) =
   where find' y = let y' = p M.! y
                   in  if y == y' then y' else find' y'
 
+{-| Find the value associated with the set containing
+    the provided key.
+-}
 lookup :: Ord k => k -> DisjointMap k v -> Maybe v
 lookup !x (DisjointMap p r) =
   do x' <- M.lookup x p
