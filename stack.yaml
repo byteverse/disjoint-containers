@@ -1,7 +1,6 @@
 resolver: lts-9.11
 packages:
 - .
-extra-deps:
-- 'containers-0.5.10.2'
+extra-deps: []
 flags: {}
 extra-package-dbs: []

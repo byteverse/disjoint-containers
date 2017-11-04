@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -186,12 +187,19 @@ appendParents = M.foldlWithKey' $ \ds x y -> if x == y
 
 {-| Create a disjoint set where all members are equal. -}
 singletons :: Eq a => Set a -> DisjointSet a
-singletons s = case S.lookupMin s of
+singletons s = case setLookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
         r = M.singleton x 1
     in DisjointSet p r
+
+setLookupMin :: Set a -> Maybe a
+#if MIN_VERSION_containers(0,5,9) 
+setLookupMin = S.lookupMin
+#else
+setLookupMin s = if S.size s > 0 then Just (S.findMin s) else Nothing
+#endif
 
 {-|
 Find the set representative for this input. Returns a new disjoint

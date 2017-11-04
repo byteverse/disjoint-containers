@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE CPP #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -194,12 +195,19 @@ appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y
     class.
 -}
 singletons :: Eq k => Set k -> v -> DisjointMap k v
-singletons s v = case S.lookupMin s of
+singletons s v = case setLookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
         r = M.singleton x (Ranked 1 s v)
     in DisjointMap p r
+
+setLookupMin :: Set a -> Maybe a
+#if MIN_VERSION_containers(0,5,9) 
+setLookupMin = S.lookupMin
+#else
+setLookupMin s = if S.size s > 0 then Just (S.findMin s) else Nothing
+#endif
 
 {-|
 Find the set representative for this input. Returns a new disjoint
