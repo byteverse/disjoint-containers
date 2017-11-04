@@ -199,7 +199,8 @@ singletons s v = case setLookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
-        r = M.singleton x (Ranked 1 s v)
+        rank = if S.size s == 1 then 0 else 1
+        r = M.singleton x (Ranked rank s v)
     in DisjointMap p r
 
 setLookupMin :: Set a -> Maybe a

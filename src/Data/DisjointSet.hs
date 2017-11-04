@@ -28,6 +28,7 @@ module Data.DisjointSet
   , equivalent
   , sets
   , values
+  , equivalences
   , representative
   , representative'
     -- * Conversion
@@ -54,7 +55,9 @@ import qualified Data.List as L
 
 data DisjointSet a = DisjointSet
   !(Map a a) -- parents
-  !(Map a Int) -- ranks
+  !(Map a (RankChildren a)) -- ranks
+
+data RankChildren a = RankChildren {-# UNPACK #-} !Int !(Set a)
 
 instance Ord a => Monoid (DisjointSet a) where
   mappend = append
@@ -86,20 +89,12 @@ applyList :: [(a -> a)] -> a -> a
 applyList [] = id
 applyList (f : fs) = f . applyList fs
 
-toLists :: Ord a => DisjointSet a -> [[a]]
+toLists :: DisjointSet a -> [[a]]
 toLists = map S.toList . toSets
 
-toSets :: Ord a => DisjointSet a -> [Set a]
-toSets = M.elems . flatten
-
--- in the result of this, the key in the
--- map keeps everything separate.
-flatten :: Ord a => DisjointSet a -> Map a (Set a)
-flatten ds@(DisjointSet p _) = S.foldl'
-  ( \m a -> case find a ds of
-    Nothing -> error "DisjointSet flatten: invariant violated. missing key."
-    Just b -> M.insertWith S.union b (S.singleton a) m
-  ) M.empty (M.keysSet p)
+toSets :: DisjointSet a -> [Set a]
+toSets (DisjointSet _ r) = M.foldr
+  (\(RankChildren _ s) xs -> s : xs) [] r
 
 {-|
 Create an equivalence relation between x and y. If either x or y
@@ -112,17 +107,18 @@ union !x !y set = flip execState set $ runMaybeT $ do
   repy <- lift $ state $ lookupCompressAdd y
   guard $ repx /= repy
   DisjointSet p r <- lift get
-  let rankx = r M.! repx
-  let ranky = r M.! repy
+  let RankChildren rankx keysx = r M.! repx
+  let RankChildren ranky keysy = r M.! repy
+      keys = mappend keysx keysy
   lift $ put $! case compare rankx ranky of
     LT -> let p' = M.insert repx repy p
-              r' = M.delete repx r
+              r' = M.delete repx $! M.insert repy (RankChildren ranky keys) r
           in  DisjointSet p' r'
     GT -> let p' = M.insert repy repx p
-              r' = M.delete repy r
+              r' = M.delete repy $! M.insert repx (RankChildren rankx keys) r
           in  DisjointSet p' r'
     EQ -> let p' = M.insert repx repy p
-              r' = M.delete repx $! M.insert repy (ranky + 1) r
+              r' = M.delete repx $! M.insert repy (RankChildren (ranky + 1) keys) r
           in  DisjointSet p' r'
 
 {-|
@@ -137,6 +133,10 @@ equivalent a b ds = fromMaybe False $ do
   x <- representative a ds
   y <- representative b ds
   Just (x == y)
+
+{-| All elements the are considered equal to the value. -}
+equivalences :: Ord a => a -> DisjointSet a -> Set a
+equivalences = error "equivalences: write me"
 
 {-| Count the number of disjoint sets -}
 sets :: DisjointSet a -> Int
@@ -156,14 +156,14 @@ insert !x set@(DisjointSet p r) =
     in  case l of
           Just _  -> set
           Nothing ->
-              let r' = M.insert x 0 r
+              let r' = M.insert x (RankChildren 0 (S.singleton x)) r
               in  DisjointSet p' r'
 
 {-| Create a disjoint set with one member. O(1). -}
 singleton :: a -> DisjointSet a
 singleton !x =
   let p = M.singleton x x
-      r = M.singleton x 0
+      r = M.singleton x (RankChildren 0 (S.singleton x))
    in DisjointSet p r
 
 {-| Create a disjoint set with a single set containing two members -}
@@ -191,7 +191,8 @@ singletons s = case setLookupMin s of
   Nothing -> empty
   Just x ->
     let p = M.fromSet (\_ -> x) s
-        r = M.singleton x 1
+        rank = if S.size s == 1 then 0 else 1
+        r = M.singleton x (RankChildren rank s)
     in DisjointSet p r
 
 setLookupMin :: Set a -> Maybe a
