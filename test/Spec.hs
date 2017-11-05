@@ -8,6 +8,7 @@ import Data.DisjointMap (DisjointMap)
 import Data.Set (Set)
 import Data.Foldable (toList)
 import qualified Data.Foldable as F
+import qualified Data.Set as S
 import qualified Data.DisjointSet as DS
 import qualified Data.DisjointMap as DM
 import qualified GHC.OldList as L
@@ -18,6 +19,7 @@ main = do
   quickCheck propUnionAll
   quickCheck propUnionAppend
   quickCheck propSingletons
+  quickCheck propEquivalances
   quickCheck propMapUnionAppend
 
 propUnionAll :: [Word] -> Bool
@@ -47,6 +49,12 @@ propMapUnionAppend xs ys =
 
 propSingletons :: [Set Word] -> Bool
 propSingletons xs = foldMap unionFoldable xs == foldMap DS.singletons xs
+
+propEquivalances :: [(Word,Word)] -> Bool
+propEquivalances xs =
+  let s = foldMap (\(a,b) -> DS.singletons (S.fromList [a,b])) xs
+      All r = foldMap (\(a,b) -> All $ DS.equivalences a s == DS.equivalences b s) xs
+   in r
 
 splitList :: [a] -> ([a],[a])
 splitList xs =

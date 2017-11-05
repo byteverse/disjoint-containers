@@ -142,9 +142,11 @@ equivalent a b ds = fromMaybe False $ do
     that the element does not exist, a singleton set will be returned.
 -}
 equivalences :: Ord a => a -> DisjointSet a -> Set a
-equivalences a (DisjointSet _ r) = case M.lookup a r of
+equivalences a (DisjointSet p r) = case M.lookup a p of
   Nothing -> S.singleton a
-  Just (RankChildren _ s) -> s
+  Just b -> case M.lookup b r of
+    Nothing -> error "Data.DisjointSet equivalences: invariant violated"
+    Just (RankChildren _ s) -> s
 
 {-| Count the number of disjoint sets -}
 sets :: DisjointSet a -> Int
