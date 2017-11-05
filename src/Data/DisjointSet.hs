@@ -45,19 +45,21 @@ import Control.Monad.Trans.Class
 import Control.Monad
 
 import Data.Map (Map)
+import Data.IntMap (IntMap)
 import Data.Set (Set)
 import Data.Semigroup (Semigroup)
 import Data.Maybe (fromMaybe)
 import qualified Data.Semigroup
 import qualified Data.Map.Strict as M
+import qualified Data.IntMap.Strict as IM
 import qualified Data.Set as S
 import qualified Data.List as L
 
 data DisjointSet a = DisjointSet
-  !(Map a a) -- parents
-  !(Map a (RankChildren a)) -- ranks
+  !(Map a Int) -- index of respresentative set
+  !(IntMap (Set a)) -- representative sets
 
-data RankChildren a = RankChildren {-# UNPACK #-} !Int !(Set a)
+-- data RankChildren a = RankChildren {-# UNPACK #-} !Int !(Set a)
 
 instance Ord a => Monoid (DisjointSet a) where
   mappend = append
@@ -93,8 +95,7 @@ toLists :: DisjointSet a -> [[a]]
 toLists = map S.toList . toSets
 
 toSets :: DisjointSet a -> [Set a]
-toSets (DisjointSet _ r) = M.foldr
-  (\(RankChildren _ s) xs -> s : xs) [] r
+toSets (DisjointSet _ r) = L.sort (IM.elems r)
 
 {-|
 Create an equivalence relation between x and y. If either x or y
@@ -212,6 +213,16 @@ representative' !x set =
     Nothing  -> (Nothing, set)
     Just rep -> let set' = compress rep x set
                 in  set' `seq` (Just rep, set')
+
+lookupAdd :: Ord a => a -> DisjointSet a -> (a, DisjointSet a)
+lookupAdd !x (DisjointSet indices reps) =
+  let nextKey = maybe 0 (\(_,_) -> ) (IM.maxView reps)
+   in insertLookupWithKey
+
+nextKey :: IntMap a -> Int
+nextKey im = if IM.null im
+  then 0
+  else
 
 lookupCompressAdd :: Ord a => a -> DisjointSet a -> (a, DisjointSet a)
 lookupCompressAdd !x set =
