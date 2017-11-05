@@ -7,6 +7,10 @@
 Persistent disjoint-sets. Disjoint-sets are a set of elements 
 with equivalence relations defined between elements, i.e. 
 two elements may be members of the same equivalence set.
+The type in this module can be roughly understood as:
+
+> DisjointSet a ≈ Set (Set a)
+
 This library provides the fundamental operations classically
 known as @union@, @find@, and @makeSet@. It also offers
 novelties like a 'Monoid' instance for disjoint sets

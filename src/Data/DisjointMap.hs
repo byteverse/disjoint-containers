@@ -8,13 +8,10 @@
 
 {-|
 Maps with disjoint sets as the key. The type in this module can be
-understood as:
+roughly understood as:
 
-> DisjointMap k v ≡ Map (DisjointSet k) v
+> DisjointMap k v ≈ Map (Set k) v
 
-However, actually using a 'Map' with @DisjointSet@ as the key
-would offer terrible performance. This is because the 'Ord'
-instance for @DisjointSet@ cannot be made to perform well.
 Internally, @DisjointMap@ is implemented like a disjoint set
 but the data structure that maps representatives to their rank also holds the value
 associated with that representative element. Additionally, it holds the set
