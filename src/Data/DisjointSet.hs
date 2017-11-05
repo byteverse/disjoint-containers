@@ -134,9 +134,13 @@ equivalent a b ds = fromMaybe False $ do
   y <- representative b ds
   Just (x == y)
 
-{-| All elements the are considered equal to the value. -}
+{-| All elements the are considered equal to the value. In the event
+    that the element does not exist, a singleton set will be returned.
+-}
 equivalences :: Ord a => a -> DisjointSet a -> Set a
-equivalences = error "equivalences: write me"
+equivalences a (DisjointSet _ r) = case M.lookup a r of
+  Nothing -> S.singleton a
+  Just (RankChildren _ s) -> s
 
 {-| Count the number of disjoint sets -}
 sets :: DisjointSet a -> Int
