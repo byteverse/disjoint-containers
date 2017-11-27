@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 import Test.QuickCheck
 import Data.Word
@@ -7,6 +9,9 @@ import Data.DisjointSet (DisjointSet)
 import Data.DisjointMap (DisjointMap)
 import Data.Set (Set)
 import Data.Foldable (toList)
+import Test.QuickCheck.Classes (jsonProps)
+import Data.Proxy (Proxy(..))
+import Data.Aeson (ToJSON,FromJSON)
 import qualified Data.Foldable as F
 import qualified Data.Set as S
 import qualified Data.DisjointSet as DS
@@ -21,6 +26,14 @@ main = do
   quickCheck propSingletons
   quickCheck propEquivalances
   quickCheck propMapUnionAppend
+  putStrLn "* Disjoint Set JSON"
+  F.forM_ (jsonProps (Proxy :: Proxy (DisjointSet Word8))) $ \(name,p) -> do
+    putStrLn name
+    quickCheck p
+  putStrLn "* Disjoint Map JSON"
+  F.forM_ (jsonProps (Proxy :: Proxy (DisjointMap Word8 WrapWord8))) $ \(name,p) -> do
+    putStrLn name
+    quickCheck p
 
 propUnionAll :: [Word] -> Bool
 propUnionAll xs =
@@ -87,3 +100,27 @@ unionMapPairs xs = unionMapPairsGo xs DM.empty
 unionMapPairsGo :: (Ord k, Monoid v) => [(k,k)] -> DisjointMap k v -> DisjointMap k v
 unionMapPairsGo [] !ds = ds
 unionMapPairsGo ((a,b):xs) !ds = unionMapPairsGo xs (DM.union a b ds)
+
+instance (Arbitrary a, Ord a) => Arbitrary (DisjointSet a) where
+  arbitrary = do
+    xs <- arbitrary
+    ys <- arbitrary
+    let s1 = foldMap (\(a,b) -> DS.doubleton a b) (xs :: [(a,a)])
+        s2 = foldMap DS.singleton (ys :: [a])
+    return (s1 <> s2)
+
+instance (Arbitrary k, Ord k, Monoid v, Arbitrary v) => Arbitrary (DisjointMap k v) where
+  arbitrary = do
+    xs <- arbitrary
+    ys <- arbitrary
+    let s1 = foldMap (\(k,v) -> DM.singleton k v) (xs :: [(k,v)])
+        s2 = foldMap (\(k1,k2) -> DM.union k1 k2 DM.empty) (ys :: [(k,k)])
+    return (s1 <> s2)
+
+newtype WrapWord8 = WrapWord8 Word8
+  deriving (FromJSON,ToJSON,Show,Eq,Arbitrary,Ord)
+
+instance Monoid WrapWord8 where
+  mempty = WrapWord8 0
+  mappend (WrapWord8 a) (WrapWord8 b) = WrapWord8 (a + b)
+

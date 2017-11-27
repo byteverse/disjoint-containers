@@ -37,6 +37,8 @@ module Data.DisjointSet
   , representative'
     -- * Conversion
   , toLists
+  , toSets
+  , fromSets
   , pretty
     -- * Tutorial
     -- $tutorial
@@ -52,6 +54,8 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Semigroup (Semigroup)
 import Data.Maybe (fromMaybe)
+import Data.Aeson (ToJSON(..),FromJSON(..))
+import Data.Foldable (foldlM)
 import qualified Data.Semigroup
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -62,6 +66,41 @@ data DisjointSet a = DisjointSet
   !(Map a (RankChildren a)) -- ranks
 
 data RankChildren a = RankChildren {-# UNPACK #-} !Int !(Set a)
+
+instance ToJSON a => ToJSON (DisjointSet a) where
+  toJSON = toJSON . toSets
+
+instance (Ord a, FromJSON a) => FromJSON (DisjointSet a) where
+  parseJSON x = do
+    theSets <- parseJSON x
+    case fromSets theSets of
+      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
+      Just s -> return s
+
+fromSets :: Ord a => [Set a] -> Maybe (DisjointSet a)
+fromSets xs = case unionDistinctAll xs of
+  Nothing -> Nothing
+  Just _ -> Just (unsafeFromSets xs empty)
+
+unsafeFromSets :: Ord a => [Set a] -> DisjointSet a -> DisjointSet a
+unsafeFromSets ys !ds@(DisjointSet p r) = case ys of
+  [] -> ds
+  x : xs -> case setLookupMin x of
+    Nothing -> unsafeFromSets xs ds
+    Just m -> unsafeFromSets xs $ DisjointSet
+      (M.union (M.fromSet (\_ -> m) x) p)
+      (M.insert m (RankChildren 0 x) r)
+  
+
+unionDistinctAll :: Ord a => [Set a] -> Maybe (Set a)
+unionDistinctAll = foldlM unionDistinct S.empty
+
+unionDistinct :: Ord a => Set a -> Set a -> Maybe (Set a)
+unionDistinct a b = 
+  let s = S.union a b
+   in if S.size a + S.size b == S.size s
+        then Just s
+        else Nothing
 
 instance Ord a => Monoid (DisjointSet a) where
   mappend = append

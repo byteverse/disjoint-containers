@@ -54,6 +54,8 @@ import Data.Set (Set)
 import Data.Bifunctor (first)
 import Data.Foldable (Foldable)
 import Data.Maybe (fromMaybe)
+import Data.Aeson (ToJSON(..),FromJSON(..))
+import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified GHC.OldList as L
@@ -84,6 +86,41 @@ instance (Ord k, Ord v) => Ord (DisjointMap k v) where
 
 instance (Show k, Ord k, Show v) => Show (DisjointMap k v) where
   show = showDisjointSet
+
+instance (ToJSON k, ToJSON v) => ToJSON (DisjointMap k v) where
+  toJSON = toJSON . toSets
+
+instance (FromJSON k, FromJSON v, Ord k) => FromJSON (DisjointMap k v) where
+  parseJSON x = do
+    theSets <- parseJSON x
+    case fromSets theSets of
+      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
+      Just s -> return s
+
+fromSets :: Ord k => [(Set k,v)] -> Maybe (DisjointMap k v)
+fromSets xs = case unionDistinctAll (map fst xs) of
+  Nothing -> Nothing
+  Just _ -> Just (unsafeFromSets xs empty)
+
+unsafeFromSets :: Ord k => [(Set k,v)] -> DisjointMap k v -> DisjointMap k v
+unsafeFromSets ys !ds@(DisjointMap p r) = case ys of
+  [] -> ds
+  (x,v) : xs -> case setLookupMin x of
+    Nothing -> unsafeFromSets xs ds
+    Just m -> unsafeFromSets xs $ DisjointMap
+      (M.union (M.fromSet (\_ -> m) x) p)
+      (M.insert m (Ranked 0 x v) r)
+  
+
+unionDistinctAll :: Ord a => [Set a] -> Maybe (Set a)
+unionDistinctAll = foldlM unionDistinct S.empty
+
+unionDistinct :: Ord a => Set a -> Set a -> Maybe (Set a)
+unionDistinct a b = 
+  let s = S.union a b
+   in if S.size a + S.size b == S.size s
+        then Just s
+        else Nothing
 
 showDisjointSet :: (Show k, Ord k, Show v) => DisjointMap k v -> String
 showDisjointSet = show . toLists
