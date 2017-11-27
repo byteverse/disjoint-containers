@@ -37,9 +37,11 @@ module Data.DisjointSet
   , representative'
     -- * Conversion
   , toLists
+  , fromLists
   , toSets
   , fromSets
   , pretty
+  , showInternal
     -- * Tutorial
     -- $tutorial
   ) where
@@ -66,6 +68,15 @@ data DisjointSet a = DisjointSet
   !(Map a (RankChildren a)) -- ranks
 
 data RankChildren a = RankChildren {-# UNPACK #-} !Int !(Set a)
+  deriving Show
+
+data RevealDisjointSet a = RevealDisjointSet
+  !(Map a a)
+  !(Map a (RankChildren a))
+  deriving Show
+
+showInternal :: Show a => DisjointSet a -> String
+showInternal (DisjointSet p r) = show (RevealDisjointSet p r)
 
 instance ToJSON a => ToJSON (DisjointSet a) where
   toJSON = toJSON . toSets
@@ -119,7 +130,7 @@ instance (Show a, Ord a) => Show (DisjointSet a) where
   show = showDisjointSet
 
 showDisjointSet :: (Show a, Ord a) => DisjointSet a -> String
-showDisjointSet = show . toLists
+showDisjointSet = showString "fromLists " . show . toLists
 
 pretty :: (Ord a, Show a) => DisjointSet a -> String
 pretty xs = id
@@ -134,6 +145,11 @@ applyList (f : fs) = f . applyList fs
 
 toLists :: DisjointSet a -> [[a]]
 toLists = map S.toList . toSets
+
+-- this definition is pretty awful. Come up with something that
+-- behaves a little more reasonably in the presence of failure.
+fromLists :: Ord a => [[a]] -> DisjointSet a
+fromLists xs = fromMaybe empty (fromSets (map S.fromList xs))
 
 toSets :: DisjointSet a -> [Set a]
 toSets (DisjointSet _ r) = M.foldr
@@ -183,9 +199,16 @@ equivalent a b ds = fromMaybe False $ do
 equivalences :: Ord a => a -> DisjointSet a -> Set a
 equivalences a (DisjointSet p r) = case M.lookup a p of
   Nothing -> S.singleton a
-  Just b -> case M.lookup b r of
+  Just b -> case M.lookup (lookupUntilRoot b p) r of
     Nothing -> error "Data.DisjointSet equivalences: invariant violated"
     Just (RankChildren _ s) -> s
+
+lookupUntilRoot :: Ord a => a -> Map a a -> a
+lookupUntilRoot a m = case M.lookup a m of
+  Nothing -> a
+  Just a' -> if a == a'
+    then a
+    else lookupUntilRoot a' m
 
 {-| Count the number of disjoint sets -}
 sets :: DisjointSet a -> Int
