@@ -36,6 +36,7 @@ test-suite test
     , QuickCheck
     , quickcheck-classes
     , aeson
+    , semigroups
   default-language: Haskell2010
 
 test-suite doctest

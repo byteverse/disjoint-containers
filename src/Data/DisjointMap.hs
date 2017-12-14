@@ -56,6 +56,7 @@ import Data.Foldable (Foldable)
 import Data.Maybe (fromMaybe)
 import Data.Aeson (ToJSON(..),FromJSON(..))
 import Data.Foldable (foldlM)
+import qualified Data.Semigroup as SG
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified GHC.OldList as L
@@ -75,6 +76,9 @@ data Ranked k v = Ranked {-# UNPACK #-} !Int !(Set k) !v
 instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
   mappend = append
   mempty = empty
+
+instance (Ord k, Monoid v) => SG.Semigroup (DisjointMap k v) where
+  (<>) = append
 
 -- technically, it should be possible to weaken the Ord constraint on v to
 -- an Eq constraint
