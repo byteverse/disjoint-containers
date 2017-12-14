@@ -34,7 +34,7 @@ test-suite test
     , disjoint-containers
     , containers
     , QuickCheck
-    , quickcheck-classes
+    , quickcheck-classes >= 0.1 && < 0.3
     , aeson
     , semigroups
   default-language: Haskell2010
