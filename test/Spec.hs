@@ -9,7 +9,7 @@ import Data.DisjointSet (DisjointSet)
 import Data.DisjointMap (DisjointMap)
 import Data.Set (Set)
 import Data.Foldable (toList)
-import Test.QuickCheck.Classes (jsonProps)
+import Test.QuickCheck.Classes (jsonLaws,Laws(..))
 import Data.Proxy (Proxy(..))
 import Data.Aeson (ToJSON,FromJSON)
 import qualified Data.Foldable as F
@@ -27,11 +27,13 @@ main = do
   quickCheck propEquivalances
   quickCheck propMapUnionAppend
   putStrLn "* Disjoint Set JSON"
-  F.forM_ (jsonProps (Proxy :: Proxy (DisjointSet Word8))) $ \(name,p) -> do
+  let Laws _ setProps = jsonLaws (Proxy :: Proxy (DisjointSet Word8))
+  F.forM_ setProps $ \(name,p) -> do
     putStrLn name
     quickCheck p
   putStrLn "* Disjoint Map JSON"
-  F.forM_ (jsonProps (Proxy :: Proxy (DisjointMap Word8 WrapWord8))) $ \(name,p) -> do
+  let Laws _ mapProps = jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8))
+  F.forM_ mapProps $ \(name,p) -> do
     putStrLn name
     quickCheck p
 
@@ -119,6 +121,9 @@ instance (Arbitrary k, Ord k, Monoid v, Arbitrary v) => Arbitrary (DisjointMap k
 
 newtype WrapWord8 = WrapWord8 Word8
   deriving (FromJSON,ToJSON,Show,Eq,Arbitrary,Ord)
+
+instance Semigroup WrapWord8 where
+  WrapWord8 a <> WrapWord8 b = WrapWord8 (a + b)
 
 instance Monoid WrapWord8 where
   mempty = WrapWord8 0
