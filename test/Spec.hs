@@ -2,40 +2,56 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-import Test.QuickCheck
-import Data.Word
-import Data.Monoid
-import Data.DisjointSet (DisjointSet)
-import Data.DisjointMap (DisjointMap)
-import Data.Set (Set)
-import Data.Foldable (toList)
-import Test.QuickCheck.Classes (jsonLaws,Laws(..))
-import Data.Proxy (Proxy(..))
 import Data.Aeson (ToJSON,FromJSON)
+import Data.Bifunctor (first)
+import Data.DisjointMap (DisjointMap)
+import Data.DisjointSet (DisjointSet)
+import Data.Foldable (toList)
+import Data.Maybe (mapMaybe)
+import Data.Monoid
+import Data.Proxy (Proxy(..))
+import Data.Set (Set)
+import Data.Word
+import Test.QuickCheck
+import Test.QuickCheck.Classes (jsonLaws,Laws(..))
+import Test.Tasty (TestTree,defaultMain,testGroup)
+
+import qualified Data.DisjointMap as DM
+import qualified Data.DisjointSet as DS
 import qualified Data.Foldable as F
 import qualified Data.Set as S
-import qualified Data.DisjointSet as DS
-import qualified Data.DisjointMap as DM
 import qualified GHC.OldList as L
+import qualified Test.QuickCheck.Classes as QCC
+import qualified Test.Tasty.QuickCheck as TQC
 
 main :: IO ()
-main = do
-  putStrLn "\nBeginning QuickCheck Tests"
-  quickCheck propUnionAll
-  quickCheck propUnionAppend
-  quickCheck propSingletons
-  quickCheck propEquivalances
-  quickCheck propMapUnionAppend
-  putStrLn "* Disjoint Set JSON"
-  let Laws _ setProps = jsonLaws (Proxy :: Proxy (DisjointSet Word8))
-  F.forM_ setProps $ \(name,p) -> do
-    putStrLn name
-    quickCheck p
-  putStrLn "* Disjoint Map JSON"
-  let Laws _ mapProps = jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8))
-  F.forM_ mapProps $ \(name,p) -> do
-    putStrLn name
-    quickCheck p
+main = defaultMain tests
+
+tests :: TestTree
+tests = testGroup "Data"
+  [ testGroup "DisjointSet"
+    [ testGroup "union"
+      [ TQC.testProperty "all" propUnionAll
+      , TQC.testProperty "append" propUnionAll
+      ]
+    , TQC.testProperty "singletons" propSingletons
+    , TQC.testProperty "equivalences" propEquivalances
+    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointSet Word8)))
+    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointSet Word8)))
+    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointSet Integer)))
+    , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointSet Integer)))
+    ]
+  , testGroup "DisjointMap"
+    [ TQC.testProperty "union" propMapUnionAppend
+    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
+    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 [Integer])))
+    , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
+    ]
+  ]
+
+lawsToTest :: QCC.Laws -> TestTree
+lawsToTest (QCC.Laws name pairs) = testGroup name (map (uncurry TQC.testProperty) pairs)
+
 
 propUnionAll :: [Word] -> Bool
 propUnionAll xs =
@@ -118,6 +134,7 @@ instance (Arbitrary k, Ord k, Monoid v, Arbitrary v) => Arbitrary (DisjointMap k
     let s1 = foldMap (\(k,v) -> DM.singleton k v) (xs :: [(k,v)])
         s2 = foldMap (\(k1,k2) -> DM.union k1 k2 DM.empty) (ys :: [(k,k)])
     return (s1 <> s2)
+  shrink = mapMaybe DM.fromSets . shrink . DM.toSets
 
 newtype WrapWord8 = WrapWord8 Word8
   deriving (FromJSON,ToJSON,Show,Eq,Arbitrary,Ord)

@@ -36,6 +36,8 @@ module Data.DisjointMap
   , representative'
     -- * Conversion
   , toLists
+  , toSets
+  , fromSets
   , pretty
   , prettyList
   , foldlWithKeys'
@@ -74,7 +76,6 @@ data Ranked k v = Ranked {-# UNPACK #-} !Int !(Set k) !v
   deriving (Functor,Foldable,Traversable)
 
 instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
-  mappend = append
   mempty = empty
 
 instance (Ord k, Monoid v) => SG.Semigroup (DisjointMap k v) where
@@ -184,7 +185,9 @@ representative = find
 
 {-| Insert a key-value pair into the disjoint map. If the key
     is is already present in another set, combine the value
-    monoidally with the value belonging to it.
+    monoidally with the value belonging to it. The new value
+    is on the left side of the append, and the old value is
+    on the right.
     Otherwise, this creates a singleton set as a new key and
     associates it with the value.
 -}
@@ -217,9 +220,10 @@ empty :: DisjointMap k v
 empty = DisjointMap M.empty M.empty
 
 append :: (Ord k, Monoid v) => DisjointMap k v -> DisjointMap k v -> DisjointMap k v
-append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) = if M.size m1 > M.size m2
-  then appendParents r2 s1 m2
-  else appendParents r1 s2 m1
+append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) =
+  -- if M.size m1 > M.size m2
+  -- appendParents r2 s1 m2
+  appendParents r1 s2 m1
 
 appendParents :: (Ord k, Monoid v) => Map k (Ranked k v) -> DisjointMap k v -> Map k k -> DisjointMap k v
 appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y
