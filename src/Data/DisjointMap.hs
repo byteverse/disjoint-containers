@@ -78,6 +78,8 @@ data Ranked k v = Ranked {-# UNPACK #-} !Int !(Set k) !v
 instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
   mempty = empty
 
+-- | This only satisfies the associativity law when the 'Monoid'
+--   instance for @v@ is commutative.
 instance (Ord k, Monoid v) => SG.Semigroup (DisjointMap k v) where
   (<>) = append
 
@@ -220,10 +222,9 @@ empty :: DisjointMap k v
 empty = DisjointMap M.empty M.empty
 
 append :: (Ord k, Monoid v) => DisjointMap k v -> DisjointMap k v -> DisjointMap k v
-append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) =
-  -- if M.size m1 > M.size m2
-  -- appendParents r2 s1 m2
-  appendParents r1 s2 m1
+append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) = if M.size m1 > M.size m2
+  then appendParents r2 s1 m2
+  else appendParents r1 s2 m1
 
 appendParents :: (Ord k, Monoid v) => Map k (Ranked k v) -> DisjointMap k v -> Map k k -> DisjointMap k v
 appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y

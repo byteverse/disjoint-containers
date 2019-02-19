@@ -6,6 +6,8 @@ import Data.Aeson (ToJSON,FromJSON)
 import Data.Bifunctor (first)
 import Data.DisjointMap (DisjointMap)
 import Data.DisjointSet (DisjointSet)
+import Data.Enum.Types (C,E)
+import Test.QuickCheck.Instances.Enum ()
 import Data.Foldable (toList)
 import Data.Maybe (mapMaybe)
 import Data.Monoid
@@ -42,9 +44,14 @@ tests = testGroup "Data"
     , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointSet Integer)))
     ]
   , testGroup "DisjointMap"
-    [ TQC.testProperty "union" propMapUnionAppend
+    [ testGroup "union"
+      [ TQC.testProperty "append" propMapUnionAppend
+      , TQC.testProperty "order" propMapUnionOrder
+      , TQC.testProperty "extra" propMapInsertUnionOrder
+      ]
+    , TQC.testProperty "insert" propMapInsertOrder
     , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
-    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 [Integer])))
+    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
     , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
     ]
   ]
@@ -52,6 +59,33 @@ tests = testGroup "Data"
 lawsToTest :: QCC.Laws -> TestTree
 lawsToTest (QCC.Laws name pairs) = testGroup name (map (uncurry TQC.testProperty) pairs)
 
+propMapUnionOrder :: C -> [Integer] -> C -> [Integer] -> Property
+propMapUnionOrder x xs y ys =
+  (x /= y)
+  ==>
+  DM.lookup x (DM.union x y (DM.singleton x xs <> DM.singleton y ys))
+  ===
+  (xs ++ ys)
+
+propMapInsertOrder :: C -> C -> [Integer] -> [Integer] -> [Integer] -> Property
+propMapInsertOrder k j xs ys zs =
+  (k /= j)
+  ==> 
+  DM.lookup k (DM.insert k xs $ DM.insert j ys $ DM.insert k zs $ mempty)
+  ===
+  (xs ++ zs)
+
+propMapInsertUnionOrder :: E -> E -> E -> [Integer] -> [Integer] -> [Integer] -> Property
+propMapInsertUnionOrder a b c xs ys zs =
+  (a /= b)
+  ==> 
+  (b /= c)
+  ==> 
+  (c /= a)
+  ==> 
+  DM.lookup a (DM.union a c (DM.insert a xs $ DM.insert b ys $ DM.insert c zs $ mempty))
+  ===
+  (xs ++ zs)
 
 propUnionAll :: [Word] -> Bool
 propUnionAll xs =
