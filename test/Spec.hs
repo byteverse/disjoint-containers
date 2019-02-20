@@ -6,7 +6,7 @@ import Data.Aeson (ToJSON,FromJSON)
 import Data.Bifunctor (first)
 import Data.DisjointMap (DisjointMap)
 import Data.DisjointSet (DisjointSet)
-import Data.Enum.Types (C,E)
+import Data.Enum.Types (C,E,G,H)
 import Test.QuickCheck.Instances.Enum ()
 import Data.Foldable (toList)
 import Data.Maybe (mapMaybe)
@@ -51,8 +51,8 @@ tests = testGroup "Data"
       ]
     , TQC.testProperty "insert" propMapInsertOrder
     , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
-    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
-    , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
+    , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 G)))
+    , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointMap Word8 G)))
     ]
   ]
 
@@ -104,13 +104,13 @@ propUnionAppend xs =
       r2 = unionPairs xs1 <> unionPairs xs2
    in r1 == r2
 
-propMapUnionAppend :: [(Word,Word)] -> [(Word,Sum Word)] -> Bool
+propMapUnionAppend :: [(Word8,Word8)] -> [(Word8,G)] -> Property
 propMapUnionAppend xs ys = 
   let r1 = unionMapPairs xs <> mapFromPairs ys
       (xs1,xs2) = splitList xs
       (ys1,ys2) = splitList ys
       r2 = unionMapPairs xs1 <> mapFromPairs ys1 <> unionMapPairs xs2 <> mapFromPairs ys2
-   in r1 == r2
+   in r1 === r2
 
 propSingletons :: [Set Word] -> Bool
 propSingletons xs = foldMap unionFoldable xs == foldMap DS.singletons xs
@@ -163,8 +163,8 @@ instance (Arbitrary a, Ord a) => Arbitrary (DisjointSet a) where
 
 instance (Arbitrary k, Ord k, Monoid v, Arbitrary v) => Arbitrary (DisjointMap k v) where
   arbitrary = do
-    xs <- arbitrary
-    ys <- arbitrary
+    SmallList xs <- arbitrary
+    SmallList ys <- arbitrary
     let s1 = foldMap (\(k,v) -> DM.singleton k v) (xs :: [(k,v)])
         s2 = foldMap (\(k1,k2) -> DM.union k1 k2 DM.empty) (ys :: [(k,k)])
     return (s1 <> s2)
@@ -180,3 +180,11 @@ instance Monoid WrapWord8 where
   mempty = WrapWord8 0
   mappend (WrapWord8 a) (WrapWord8 b) = WrapWord8 (a + b)
 
+newtype SmallList a = SmallList { getSmallList :: [a] }
+
+instance Arbitrary a => Arbitrary (SmallList a) where
+  arbitrary = do
+    n <- choose (0,20)
+    xs <- vector n
+    return (SmallList xs)
+  shrink = map SmallList . shrink . getSmallList

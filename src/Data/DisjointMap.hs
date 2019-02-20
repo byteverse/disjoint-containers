@@ -29,6 +29,7 @@ module Data.DisjointMap
   , singletons
   , insert
   , union
+  , unionWeakly
     -- * Query
   , lookup
   , lookup'
@@ -62,6 +63,7 @@ import qualified Data.Semigroup as SG
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified GHC.OldList as L
+import qualified Data.Foldable as F
 
 -- | A map having disjoints sets of @k@ as keys and
 --   @v@ as values.
@@ -154,7 +156,7 @@ foldlWithKeys' f a0 (DisjointMap _ r) =
 
 {-|
 Create an equivalence relation between x and y. If either x or y
-are not already is the disjoint set, they are first created
+are not already in the disjoint set, they are first created
 as singletons with a value that is 'mempty'.
 -}
 union :: (Ord k, Monoid v) => k -> k -> DisjointMap k v -> DisjointMap k v
@@ -177,6 +179,50 @@ union !x !y set = flip execState set $ runMaybeT $ do
     EQ -> let p' = M.insert repx repy p
               r' = M.delete repx $! M.insert repy (Ranked (ranky + 1) keys val) r
           in  DisjointMap p' r'
+{-|
+Create an equivalence relation between x and y. If both x and y
+are missing, do not create either of them. Otherwise, they will
+both exist in the map.
+-}
+unionWeakly :: (Ord k, Semigroup v) => k -> k -> DisjointMap k v -> DisjointMap k v
+unionWeakly !x !y set = flip execState set $ runMaybeT $ do
+  mx <- lift $ state $ lookupCompress x
+  my <- lift $ state $ lookupCompress y
+  case mx of
+    Nothing -> case my of
+      Nothing -> pure ()
+      Just repy -> do
+        DisjointMap p r <- lift get
+        lift $ put $
+          let p' = M.insert x repy p
+              Ranked ranky keys val = fromMaybe (error "Data.DisjointMap.unionWeakly") (M.lookup repy r)
+              r' = M.insert repy (Ranked ranky (S.insert x keys) val) r
+           in DisjointMap p' r'
+    Just repx -> case my of
+      Nothing -> do
+        DisjointMap p r <- lift get
+        lift $ put $
+          let p' = M.insert y repx p
+              Ranked rankx keys val = fromMaybe (error "Data.DisjointMap.unionWeakly") (M.lookup repx r)
+              r' = M.insert repx (Ranked rankx (S.insert y keys) val) r
+           in DisjointMap p' r'
+      Just repy -> do
+        guard $ repx /= repy
+        DisjointMap p r <- lift get
+        let Ranked rankx keysx valx = r M.! repx
+        let Ranked ranky keysy valy = r M.! repy
+        let val = valx <> valy
+        let keys = mappend keysx keysy
+        lift $ put $! case compare rankx ranky of
+          LT -> let p' = M.insert repx repy p
+                    r' = M.delete repx $! M.insert repy (Ranked ranky keys val) r
+                in  DisjointMap p' r'
+          GT -> let p' = M.insert repy repx p
+                    r' = M.delete repy $! M.insert repx (Ranked rankx keys val) r
+                in  DisjointMap p' r'
+          EQ -> let p' = M.insert repx repy p
+                    r' = M.delete repx $! M.insert repy (Ranked (ranky + 1) keys val) r
+                in  DisjointMap p' r'
 
 {-|
 Find the set representative for this input. This function
@@ -193,10 +239,12 @@ representative = find
     Otherwise, this creates a singleton set as a new key and
     associates it with the value.
 -}
-insert :: (Ord k, Monoid v) => k -> v -> DisjointMap k v -> DisjointMap k v
+insert :: (Ord k, Semigroup v) => k -> v -> DisjointMap k v -> DisjointMap k v
 insert !x = insertInternal x (S.singleton x)
 
-insertInternal :: (Ord k, Monoid v) => k -> Set k -> v -> DisjointMap k v -> DisjointMap k v
+-- Precondition: Nothing in ks already exists in the disjoint map.
+-- This function should only be used by insert.
+insertInternal :: (Ord k, Semigroup v) => k -> Set k -> v -> DisjointMap k v -> DisjointMap k v
 insertInternal !x !ks !v set@(DisjointMap p r) =
   let (l, p') = M.insertLookupWithKey (\_ _ old -> old) x x p
    in case l of
@@ -204,7 +252,7 @@ insertInternal !x !ks !v set@(DisjointMap p r) =
           let (m,DisjointMap p2 r') = representative' x set
            in case m of
                 Nothing -> error "DisjointMap insert: invariant violated"
-                Just root -> DisjointMap p2 (M.adjust (\(Ranked rank oldKs vOld) -> Ranked rank (mappend oldKs ks) (mappend v vOld)) root r')
+                Just root -> DisjointMap p2 (M.adjust (\(Ranked rank oldKs vOld) -> Ranked rank (mappend oldKs ks) (v <> vOld)) root r')
         Nothing ->
           let r' = M.insert x (Ranked 0 ks v) r
           in  DisjointMap p' r'
@@ -221,17 +269,26 @@ singleton !x !v =
 empty :: DisjointMap k v
 empty = DisjointMap M.empty M.empty
 
-append :: (Ord k, Monoid v) => DisjointMap k v -> DisjointMap k v -> DisjointMap k v
+append :: (Ord k, Semigroup v) => DisjointMap k v -> DisjointMap k v -> DisjointMap k v
 append s1@(DisjointMap m1 r1) s2@(DisjointMap m2 r2) = if M.size m1 > M.size m2
-  then appendParents r2 s1 m2
-  else appendParents r1 s2 m1
+  then appendPhase2 (appendPhase1 r2 s1 m2) m2
+  else appendPhase2 (appendPhase1 r1 s2 m1) m1
 
-appendParents :: (Ord k, Monoid v) => Map k (Ranked k v) -> DisjointMap k v -> Map k k -> DisjointMap k v
-appendParents !ranks = M.foldlWithKey' $ \ds x y -> if x == y
+appendPhase1 :: (Ord k, Semigroup v)
+  => Map k (Ranked k v)
+  -> DisjointMap k v
+  -> Map k k
+  -> DisjointMap k v
+appendPhase1 !ranks = M.foldlWithKey' $ \ds x y -> if x == y
   then case M.lookup x ranks of
-    Nothing -> error "DisjointMap appendParents: invariant violated"
-    Just (Ranked _ ks v) -> insertInternal x ks v ds
-  else union x y ds
+    Nothing -> error "Data.DisjointMap.appendParents: invariant violated"
+    Just (Ranked _ ks v) -> F.foldl' (\dm k -> unionWeakly k x dm) (insert x v ds) ks
+  else ds
+
+appendPhase2 :: (Ord k, Semigroup v) => DisjointMap k v -> Map k k -> DisjointMap k v
+appendPhase2 = M.foldlWithKey' $ \ds x y -> if x == y
+  then ds
+  else unionWeakly x y ds
 
 {-| Create a disjoint map with one key. Everything in the
     'Set' argument is consider part of the same equivalence
@@ -268,15 +325,25 @@ lookupCompressAdd :: (Ord k, Monoid v) => k -> DisjointMap k v -> (k, DisjointMa
 lookupCompressAdd !x set =
   case find x set of
     Nothing -> (x, insert x mempty set)
-    Just rep -> let set' = compress rep x set
-                in  set' `seq` (rep, set')
+    Just rep -> let !set' = compress rep x set
+                 in (rep, set')
+
+lookupCompress :: Ord k => k -> DisjointMap k v -> (Maybe k, DisjointMap k v)
+lookupCompress !x set =
+  case find x set of
+    Nothing -> (Nothing, set)
+    Just rep ->
+      let !set' = compress rep x set
+       in (Just rep, set')
 
 find :: Ord k => k -> DisjointMap k v -> Maybe k
-find !x (DisjointMap p _) =
-  do x' <- M.lookup x p
-     return $! if x == x' then x' else find' x'
-  where find' y = let y' = p M.! y
-                  in  if y == y' then y' else find' y'
+find !x (DisjointMap p _) = do
+  x' <- M.lookup x p
+  return $! if x == x' then x' else find' x'
+  where
+  find' y =
+    let y' = p M.! y
+     in if y == y' then y' else find' y'
 
 {-| Find the value associated with the set containing
     the provided key. If the key is not found, use 'mempty'.
@@ -288,19 +355,21 @@ lookup k = fromMaybe mempty . lookup' k
     the provided key.
 -}
 lookup' :: Ord k => k -> DisjointMap k v -> Maybe v
-lookup' !x (DisjointMap p r) =
-  do x' <- M.lookup x p
-     if x == x'
-       then case M.lookup x r of
-         Nothing -> Nothing
-         Just (Ranked _ _ v) -> Just v
-       else find' x'
-  where find' y = let y' = p M.! y
-                   in if y == y'
-                        then case M.lookup y r of
-                          Nothing -> Nothing
-                          Just (Ranked _ _ v) -> Just v
-                        else find' y'
+lookup' !x (DisjointMap p r) = do
+  x' <- M.lookup x p
+  if x == x'
+    then case M.lookup x r of
+      Nothing -> Nothing
+      Just (Ranked _ _ v) -> Just v
+    else find' x'
+  where
+  find' y =
+    let y' = p M.! y
+     in if y == y'
+          then case M.lookup y r of
+            Nothing -> Nothing
+            Just (Ranked _ _ v) -> Just v
+          else find' y'
 
 -- TODO: make this smarter about recreating the parents Map.
 -- Currently, it will recreate it more often than needed.
@@ -310,9 +379,10 @@ compress !rep = helper
   helper !x set@(DisjointMap p r)
     | x == rep  = set
     | otherwise = helper x' set'
-    where x'    = p M.! x
-          set'  = let p' = M.insert x rep p
-                  in  p' `seq` DisjointMap p' r
+    where
+    x' = p M.! x
+    set' = let !p' = M.insert x rep p
+            in DisjointMap p' r
 
 {- $tutorial
 
