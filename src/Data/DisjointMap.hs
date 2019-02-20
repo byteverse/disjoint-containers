@@ -82,7 +82,7 @@ instance (Ord k, Monoid v) => Monoid (DisjointMap k v) where
 
 -- | This only satisfies the associativity law when the 'Monoid'
 --   instance for @v@ is commutative.
-instance (Ord k, Monoid v) => SG.Semigroup (DisjointMap k v) where
+instance (Ord k, Semigroup v) => SG.Semigroup (DisjointMap k v) where
   (<>) = append
 
 -- technically, it should be possible to weaken the Ord constraint on v to
