@@ -384,7 +384,7 @@ name as they would call it. We begin with a rating data type:
 
 >>> import Data.Function ((&))
 >>> data Rating = Lowest | Low | Medium | High | Highest deriving (Eq,Ord,Show)
->>> instance Semigroup Rating where (<>) = min -- needed for Monoid Rating
+>>> instance Semigroup Rating where (<>) = min
 >>> instance Monoid Rating where mempty = Highest; mappend = min
 
 Notice that the 'Monoid' instance combines ratings by choosing
