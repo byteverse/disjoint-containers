@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-import Data.Aeson (ToJSON,FromJSON)
+import Data.Aeson (ToJSON(..),FromJSON(..))
 import Data.Bifunctor (first)
 import Data.DisjointMap (DisjointMap)
 import Data.DisjointSet (DisjointSet)
@@ -188,3 +188,23 @@ instance Arbitrary a => Arbitrary (SmallList a) where
     xs <- vector n
     return (SmallList xs)
   shrink = map SmallList . shrink . getSmallList
+
+instance (ToJSON k, ToJSON v) => ToJSON (DM.DisjointMap k v) where
+  toJSON = toJSON . DM.toSets
+
+instance (FromJSON k, FromJSON v, Ord k) => FromJSON (DisjointMap k v) where
+  parseJSON x = do
+    theSets <- parseJSON x
+    case DM.fromSets theSets of
+      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
+      Just s -> return s
+
+instance ToJSON a => ToJSON (DS.DisjointSet a) where
+  toJSON = toJSON . DS.toSets
+
+instance (Ord a, FromJSON a) => FromJSON (DS.DisjointSet a) where
+  parseJSON x = do
+    theSets <- parseJSON x
+    case DS.fromSets theSets of
+      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
+      Just s -> return s
