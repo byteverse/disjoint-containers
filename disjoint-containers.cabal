@@ -38,7 +38,6 @@ test-suite test
     , tasty-quickcheck
     , enum-types
     , quickcheck-enum-instances
-    , aeson
     , semigroups
   default-language: Haskell2010
 

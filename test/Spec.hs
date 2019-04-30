@@ -2,7 +2,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-import Data.Aeson (ToJSON(..),FromJSON(..))
 import Data.Bifunctor (first)
 import Data.DisjointMap (DisjointMap)
 import Data.DisjointSet (DisjointSet)
@@ -15,7 +14,7 @@ import Data.Proxy (Proxy(..))
 import Data.Set (Set)
 import Data.Word
 import Test.QuickCheck
-import Test.QuickCheck.Classes (jsonLaws,Laws(..))
+import Test.QuickCheck.Classes (Laws(..))
 import Test.Tasty (TestTree,defaultMain,testGroup)
 
 import qualified Data.DisjointMap as DM
@@ -38,8 +37,6 @@ tests = testGroup "Data"
       ]
     , TQC.testProperty "singletons" propSingletons
     , TQC.testProperty "equivalences" propEquivalances
-    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointSet Word8)))
-    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointSet Word8)))
     , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointSet Integer)))
     , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointSet Integer)))
     ]
@@ -50,7 +47,6 @@ tests = testGroup "Data"
       , TQC.testProperty "extra" propMapInsertUnionOrder
       ]
     , TQC.testProperty "insert" propMapInsertOrder
-    , lawsToTest (QCC.jsonLaws (Proxy :: Proxy (DisjointMap Word8 WrapWord8)))
     , lawsToTest (QCC.monoidLaws (Proxy :: Proxy (DisjointMap Word8 G)))
     , lawsToTest (QCC.commutativeMonoidLaws (Proxy :: Proxy (DisjointMap Word8 G)))
     ]
@@ -171,7 +167,7 @@ instance (Arbitrary k, Ord k, Monoid v, Arbitrary v) => Arbitrary (DisjointMap k
   shrink = mapMaybe DM.fromSets . shrink . DM.toSets
 
 newtype WrapWord8 = WrapWord8 Word8
-  deriving (FromJSON,ToJSON,Show,Eq,Arbitrary,Ord)
+  deriving (Show,Eq,Arbitrary,Ord)
 
 instance Semigroup WrapWord8 where
   WrapWord8 a <> WrapWord8 b = WrapWord8 (a + b)
@@ -188,23 +184,3 @@ instance Arbitrary a => Arbitrary (SmallList a) where
     xs <- vector n
     return (SmallList xs)
   shrink = map SmallList . shrink . getSmallList
-
-instance (ToJSON k, ToJSON v) => ToJSON (DM.DisjointMap k v) where
-  toJSON = toJSON . DM.toSets
-
-instance (FromJSON k, FromJSON v, Ord k) => FromJSON (DisjointMap k v) where
-  parseJSON x = do
-    theSets <- parseJSON x
-    case DM.fromSets theSets of
-      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
-      Just s -> return s
-
-instance ToJSON a => ToJSON (DS.DisjointSet a) where
-  toJSON = toJSON . DS.toSets
-
-instance (Ord a, FromJSON a) => FromJSON (DS.DisjointSet a) where
-  parseJSON x = do
-    theSets <- parseJSON x
-    case DS.fromSets theSets of
-      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
-      Just s -> return s
