@@ -56,7 +56,6 @@ import Data.Map (Map)
 import Data.Set (Set)
 import Data.Semigroup (Semigroup)
 import Data.Maybe (fromMaybe)
-import Data.Aeson (ToJSON(..),FromJSON(..))
 import Data.Foldable (foldlM)
 import qualified Data.Semigroup
 import qualified Data.Map.Strict as M
@@ -77,16 +76,6 @@ data RevealDisjointSet a = RevealDisjointSet
 
 showInternal :: Show a => DisjointSet a -> String
 showInternal (DisjointSet p r) = show (RevealDisjointSet p r)
-
-instance ToJSON a => ToJSON (DisjointSet a) where
-  toJSON = toJSON . toSets
-
-instance (Ord a, FromJSON a) => FromJSON (DisjointSet a) where
-  parseJSON x = do
-    theSets <- parseJSON x
-    case fromSets theSets of
-      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
-      Just s -> return s
 
 fromSets :: Ord a => [Set a] -> Maybe (DisjointSet a)
 fromSets xs = case unionDistinctAll xs of
