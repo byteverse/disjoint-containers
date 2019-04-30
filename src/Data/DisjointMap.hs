@@ -57,7 +57,6 @@ import Data.Set (Set)
 import Data.Bifunctor (first)
 import Data.Foldable (Foldable)
 import Data.Maybe (fromMaybe)
-import Data.Aeson (ToJSON(..),FromJSON(..))
 import Data.Foldable (foldlM)
 import qualified Data.Semigroup as SG
 import qualified Data.Map.Strict as M
@@ -95,16 +94,6 @@ instance (Ord k, Ord v) => Ord (DisjointMap k v) where
 
 instance (Show k, Ord k, Show v) => Show (DisjointMap k v) where
   show = showDisjointSet
-
-instance (ToJSON k, ToJSON v) => ToJSON (DisjointMap k v) where
-  toJSON = toJSON . toSets
-
-instance (FromJSON k, FromJSON v, Ord k) => FromJSON (DisjointMap k v) where
-  parseJSON x = do
-    theSets <- parseJSON x
-    case fromSets theSets of
-      Nothing -> fail "the sets comprising the DisjointSet were not distinct"
-      Just s -> return s
 
 fromSets :: Ord k => [(Set k,v)] -> Maybe (DisjointMap k v)
 fromSets xs = case unionDistinctAll (map fst xs) of
