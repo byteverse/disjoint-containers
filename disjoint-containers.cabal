@@ -34,7 +34,7 @@ test-suite test
     , disjoint-containers
     , containers
     , QuickCheck >= 2.11
-    , quickcheck-classes >= 0.4.14.1
+    , quickcheck-classes >= 0.5
     , tasty
     , tasty-quickcheck
     , enum-types
