@@ -13,7 +13,7 @@ Internally, @DisjointMap@ is implemented like a disjoint set
 but the data structure that maps representatives to their rank also holds the value
 associated with that representative element. Additionally, it holds the set
 of all keys that in the same equivalence class as the representative.
-This makes it possible to implementat functions like @foldlWithKeys\'@
+This makes it possible to implement functions like @foldlWithKeys\'@
 efficiently.
 -}
 module Data.DisjointMap
